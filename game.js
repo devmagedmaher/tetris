@@ -1,10 +1,18 @@
 Array.prototype.random = function() {
 	return this[Math.floor(Math.random() * this.length)];
-}
+};
 
 Array.prototype.randomIndex = function() {
 	return Math.floor(Math.random() * this.length);
-}
+};
+
+Number.prototype.rowToY = function(height, size) {
+	return Math.abs(this - (height / size) + 1) * size;
+};
+
+Number.prototype.YToRow = function(height, size) {
+	return Math.abs(this - height + size) / size;
+};
 
 // canvas area
 const canvas = document.getElementById('canvas');
@@ -13,10 +21,11 @@ canvas.width = 400;
 canvas.height = 600;
   
 const game = {
-  size: 50,
-  spacing: 2,
+  size: 25,
+  spacing: 1,
   // innerSize is calculated every time page load
   innerSize: 0, 
+
 
   speed: 2,
   start: 0,
@@ -64,6 +73,28 @@ const game = {
 	  	],
 	  	[
 	  		[
+		  		[0, 0, 0],
+		  		[1, 1, 1],
+		  		[1, 0, 0]
+	  		],
+	  		[
+		  		[1, 1, 0],
+		  		[0, 1, 0],
+		  		[0, 1, 0]
+	  		],
+	  		[
+		  		[0, 0, 1],
+		  		[1, 1, 1],
+		  		[0, 0, 0]
+	  		],
+	  		[
+		  		[0, 1, 0],
+		  		[0, 1, 0],
+		  		[0, 1, 1]
+	  		],
+	  	],
+	  	[
+	  		[
 		  		[0, 1, 0],
 		  		[1, 1, 1],
 		  		[0, 0, 0]
@@ -86,8 +117,10 @@ const game = {
 	  	],
 	  ],
 
-  ground: {}
+  ground: {},
 
+  score: 0,
+  scoreContainer: document.querySelector('#score')
 }
 // simple calculation for innerSize
 	game.innerSize = game.size - game.spacing*2
@@ -119,16 +152,58 @@ game.ground = {
 	},
 
 	_draw() {
-		this._parts.forEach((p) => {
-			c.beginPath();
+		this._parts.forEach((row, rowIndex) => {
 			c.fillStyle = '#ffffff';
-			c.fillRect(p.x + game.spacing, p.y + game.spacing, game.innerSize, game.innerSize);
+			row.forEach((x) => {
+				c.beginPath();
+				c.fillRect(x + game.spacing, rowIndex.rowToY(canvas.height, game.size) + game.spacing, game.innerSize, game.innerSize);
+			});
 		});
 	},
 
 	addPart(parts) {
-		parts.forEach((p) => this._parts.push({x: p.x, y: p.y}));
+		parts.forEach((p) => {
+			const row = p.y.YToRow(canvas.height, game.size);
+			if (!this._parts[row]) this._parts[row] = [];
+			// if (!~this._parts[row].indexOf(p.x)) 
+				this._parts[row].push(p.x);
+		});
+		this._deleteFullRows();
 	},
+
+	_deleteFullRows() {
+		const fullRows = [];
+		this._parts.forEach((row, rowIndex) => {
+			if (row.length === canvas.width / game.size) {
+				fullRows.push(rowIndex);
+			}
+		});
+		this._moveTopRows(fullRows);
+	},
+
+	_moveTopRows(fullRows) {
+		fullRows.forEach((row, rowIndex) => {
+			for (let i = row - rowIndex; i < this._parts.length; i++) {
+				this._parts[i] = (this._parts[i+1]) ? this._parts[i+1] : [];
+			}
+			// score increment
+			this._addScore(rowIndex+1);
+		});
+		this._isGameover();
+	},
+
+	_addScore(increment) {
+		game.score += increment;
+		game.scoreContainer.textContent = `score: ${game.score}`;
+	},
+
+	_isGameover() {
+		if (this._parts[(0).YToRow(canvas.height, game.size)]) {
+			game.gameOver = true;
+			game.playing = false;
+			game.blocks = [];
+		}
+	}
 };
 
 
@@ -227,7 +302,7 @@ class Block {
 // movement functions
 
 	move() {
-		this._hitGround();
+		if (this._hitGround()) return false;
 		this._falling();
 	}
 
@@ -245,9 +320,18 @@ class Block {
 					this._transformBlock();
 					return true;
 				}
-				game.ground.parts.forEach((g) => (p.x === g.x && p.y + game.size === g.y) ? this._transformBlock() : 0);
+				const groundRow = game.ground.parts[p.y.YToRow(canvas.height, game.size) - 1];
+				if (groundRow) {
+					for (let gx of groundRow) {
+						if (p.x === gx) {
+							this._transformBlock();
+							return true;
+						}
+					}
+				}
 			}
 		}
+		return false;
 	}
 
 	_transformBlock() {
@@ -265,10 +349,11 @@ class Block {
 					direction === 'right' && p.x >= canvas.width - game.size) {
 					return false;
 				} else {
-					for (let g of game.ground.parts) {
-						if (p.y === g.y) {
-							if ((direction === 'right' && p.x + game.size === g.x) || 
-								(direction === 'left' && p.x - game.size === g.x)) { 
+					const groundRow = game.ground.parts[p.y.YToRow(canvas.height, game.size)];
+					if (groundRow) {
+						for (let gx of groundRow) {
+							if ((direction === 'right' && p.x + game.size === gx) || 
+								(direction === 'left' && p.x - game.size === gx)) { 
 								return false;		
 							}
 						}
@@ -295,7 +380,7 @@ class Block {
 	}
 
 	fastFalling() {
-		this._speed = game.speed * 5;
+		this._speed = game.speed * 10;
 	}
 
 	normalFalling() {
@@ -307,13 +392,21 @@ class Block {
 		this._rotaion = (this._patterns[this._rotaion+1]) ? this._rotaion+1 : 0;
 		this._updateParts();
 		parts: for (let p of this._parts) {
-			for (let g of game.ground.parts) {
-				if (p.x === g.x && p.y === g.y || p.x < 0 || p.x >= canvas.width) {
-					this._rotaion = previousRotation;
-					this._updateParts();
-					break parts;
+			if (p.x < 0 || p.x >= canvas.width) {
+				this._rotaion = previousRotation;
+				this._updateParts();
+				break parts;
+			}  
+			const groundRow = game.ground.parts[p.y.YToRow(canvas.height, game.size)];
+			if (groundRow) {
+				for (let gx of groundRow) {
+					if (p.x === gx) {
+						this._rotaion = previousRotation;
+						this._updateParts();
+						break parts;
+					}
 				}
-			}
+			} 
 		}
 	}
 
@@ -349,23 +442,43 @@ function drawScore() {
 
 
 
+function drawGameOverText() {
+  c.beginPath();
+  c.textBaseline = 'middle';
+  c.textAlign = 'center';
+  c.fillStyle = '#eee'
+  c.strokeStyle = '#900';
+  c.lineWidth = 16;
+  c.font = 'bold 48px tahoma';
+  c.strokeText('Game Over', canvas.width/2, canvas.height/2);
+  c.fillText('Game Over', canvas.width/2, canvas.height/2);
+}
+
+
+
 
 // let start = 0;
 function draw(timestamp) {
   c.clearRect(0, 0, canvas.width, canvas.height);
 
 
-  // render falling blocks
-  game.blocks.forEach((b) => {
-	if (timestamp - b.start > 1000 / b.speed && game.playing) {
-		b.setStart(timestamp);
-		b.move();
-	}
-  	b.render();
-  });
+  if (game.playing) {
+	  // render falling blocks
+	  game.blocks.forEach((b) => {
+		if (timestamp - b.start > 1000 / b.speed && game.playing) {
+			b.setStart(timestamp);
+			b.move();
+		}
+	  	b.render();
+	  });
+  }
 
   // render ground
   game.ground.render();
+
+  if (game.gameOver) {
+  	drawGameOverText();
+  }
 
   requestAnimationFrame(draw);
 }
@@ -404,7 +517,7 @@ document.body.addEventListener('keyup', function(e) {
 			break;
 	}
 	// start game 
-	if (!game.playing) {
+	if (!game.playing && !game.gameOver) {
 		game.playing = true;	
 		game.blocks.push(new Block);
 		document.querySelector('#instruction').remove();
