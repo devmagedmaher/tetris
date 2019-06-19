@@ -169,6 +169,7 @@ game.ground = {
 				this._parts[row].push(p.x);
 		});
 		this._deleteFullRows();
+		game.speed += 0.04;
 	},
 
 	_deleteFullRows() {
